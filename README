@@ -3,7 +3,6 @@ yum install httpd -y
 systemctl start httpd
 pip install paramiko
 
-2、导入paramiko
 错误提示：
 AttributeError: 'module' object has no attribute 'GSSException'
 解决：
@@ -13,6 +12,7 @@ pip uninstall gssapi
 pip install web.py -i http://pypi.douban.com/simple
 
 
+
+
 http://controller:9000/admin   haproxy/haproxy
 http://controller/8004 openstack/root1234
-
