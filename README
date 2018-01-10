@@ -12,6 +12,7 @@ pip uninstall gssapi
 pip install web.py -i http://pypi.douban.com/simple
 
 
-3、安装完成之后的页面
+
+3、安装openstack的监控页面
 http://controller:9000/admin   haproxy/haproxy
 http://controller/8004 openstack/root1234
