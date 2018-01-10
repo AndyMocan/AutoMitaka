@@ -1,0 +1,17 @@
+1、在controller01节点上
+yum install httpd -y
+systemctl start httpd
+pip install paramiko
+
+错误提示：
+AttributeError: 'module' object has no attribute 'GSSException'
+解决：
+pip uninstall gssapi
+
+# 使用国内pip源
+pip install web.py -i http://pypi.douban.com/simple
+
+
+
+
+http://172.16.15.90:9000/admin   haproxy  haproxy
