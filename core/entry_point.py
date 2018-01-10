@@ -608,6 +608,6 @@ if __name__ == '__main__':
     install_keystone()
     install_openstack()
     install_compute()
-#
+
 
 

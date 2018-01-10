@@ -14,4 +14,5 @@ pip install web.py -i http://pypi.douban.com/simple
 
 
 
-http://172.16.15.90:9000/admin   haproxy  haproxy
+http://controller:9000/admin   haproxy/haproxy
+http://controller/8004 openstack/root1234
