@@ -1,16 +1,180 @@
-1、在controller01节点上
-yum install httpd -y
+
+1、拷贝所有的RPM包到controller01上，并在controller01上配置httpd服务
+
+rpm -ivh mailcap
+rpm -ivh httpd-tools
+rpm -ivh httpd
+
 systemctl start httpd
-pip install paramiko
 
-错误提示：
-AttributeError: 'module' object has no attribute 'GSSException'
-解决：
-pip uninstall gssapi
+在controller01上把RPM包拷贝到/var/www/html/openstack 目录下
+cp -r /opt/openstack/ /var/www/html/
 
-# 使用国内pip源
-pip install web.py -i http://pypi.douban.com/simple
+# 在controller01上配置yum源
+echo "
+[base]
+name=CentOS-Base
+baseurl=http://192.168.1.219/openstack/base
+enabled=1
+gpgcheck=0
+[mitaka]
+name=mitaka
+baseurl=http://192.168.1.219/openstack/openstack-mitaka
+enabled=1
+gpgcheck=0
+[epel]
+name=epel
+baseurl=http://192.168.1.219/openstack/epel
+enabled=1
+gpgcheck=0
+" > /etc/yum.repos.d/openstack-mitaka.repo
 
-3、安装openstack的监控
-http://controller:9000/admin   haproxy/haproxy
-http://controller/8004 openstack/root1234
+
+2、脚本所在的管理机器上执行如下操作
+echo "
+[base]
+name=CentOS-Base
+baseurl=http://192.168.1.219/openstack/base
+enabled=1
+gpgcheck=0
+[mitaka]
+name=mitaka
+baseurl=http://192.168.1.219/openstack/openstack-mitaka
+enabled=1
+gpgcheck=0
+[epel]
+name=epel
+baseurl=http://192.168.1.219/openstack/epel
+enabled=1
+gpgcheck=0
+" > /etc/yum.repos.d/openstack-mitaka.repo
+
+yum install python-pip -y
+pip install --upgrade pip
+pip install pariako
+
+cd AutoMitak/conf/
+配置settings.py
+# coding:utf-8
+
+"""配置文件"""
+
+host_data = {
+    "controller_node":{    # 控制节点和网络节点
+        "controller":{"IP":"192.168.1.242", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+        "controller01":{"IP":"192.168.1.219", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+        "controller02":{"IP":"192.168.1.220", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+        "controller03":{"IP":"192.168.1.221", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+    },
+
+    "compute_node":{    # 计算节点
+        "compute01":{"IP":"192.168.1.237", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+        "compute02":{"IP":"192.168.1.238", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp132s0','tuncard':'enp130s0'},
+        "compute03":{"IP":"192.168.1.239", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+        "compute04":{"IP":"192.168.1.240", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+        "compute05":{"IP":"192.168.1.241", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
+    },
+
+    # "other":{
+    #     # "ceilometer":{"IP":"192.168.179.133", "username":"root", "password":"zcl", "port":22},
+    # }
+}
+
+
+cd AutoMitak/core/
+python entry_point.py
+
+
+############################################################## 安装完成之后的后续配置 #####################################
+
+3、cinder对接LVM存储
+# 在三台控制节点上
+pvcreate /dev/sdb
+vgcreate cinder-volumes /dev/sdb
+
+openstack-config --set /etc/cinder/cinder.conf lvm volume_driver  cinder.volume.drivers.lvm.LVMVolumeDriver
+openstack-config --set /etc/cinder/cinder.conf lvm volume_group   cinder-volumes
+openstack-config --set /etc/cinder/cinder.conf lvm iscsi_protocol iscsi
+openstack-config --set /etc/cinder/cinder.conf lvm iscsi_helper   lioadm
+openstack-config --set /etc/cinder/cinder.conf DEFAULT enabled_backends  lvm
+
+pcs resource restart openstack-cinder-volume
+
+
+4、NFS共享存储
+1）image共享
+# 在NFS主机上
+yum -y install nfs-utils rpcbind -y 
+mkdir /opt/glance/images/ -p 
+
+fdisk /dev/sdc <<EOF
+n
+p
+1
+
+
+w
+EOF
+# 格式化
+mkfs.xfs /dev/sdc1
+
+# 挂载
+mount /dev/sdc1 /opt/glance/images/
+
+
+echo "/opt/glance/images/ 10.0.0.0/24(rw,no_root_squash,no_all_squash,sync)" > /etc/exports 
+
+exportfs -r 
+systemctl enable rpcbind.service 
+systemctl start rpcbind.service 
+systemctl enable nfs-server.service 
+systemctl start nfs-server.service
+chmod -R 777 /opt/glance/images/
+
+
+# 查看 showmount -e 10.0.0.218
+
+# 三个控制节点挂载
+
+mount -t nfs 10.0.0.218:/opt/glance/images/ /var/lib/glance/images/
+
+
+
+2） nova共享
+# 分区，格式化
+
+# 分区
+fdisk /dev/sdb <<EOF
+n
+p
+1
+
+
+w
+EOF
+
+# 格式化
+mkfs.xfs /dev/sdb1
+
+# 挂载
+mkdir -p /opt/nova/instances/
+mount /dev/sdb1 /opt/nova/instances/
+
+# NFS共享
+echo "/opt/nova/instances 10.0.0.0/24(rw,no_root_squash,no_all_squash,sync)" >> /etc/exports
+exportfs -r
+chmod -R 777 /opt/nova/instances/
+
+
+# 5个计算节点使用NFS
+
+showmount -e 10.0.0.218
+mount -t nfs 10.0.0.218:/opt/nova/instances /var/lib/nova/instances/
+chown -R nova.nova /var/lib/nova
+
+
+
+# 上传镜像
+openstack image create "cirros" --file cirros-0.3.4-x86_64-disk.img --disk-format qcow2 --container-format bare --public
+
+
