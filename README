@@ -58,7 +58,7 @@ cd AutoMitak/conf/
 # coding:utf-8
 
 """配置文件"""
-
+# mancard是管理网络endpoint，buscard是业务网络：为虚拟机提供桥接的网卡，tuncard：隧道网卡，目前没有使用到，DVR的时候可以使用
 host_data = {
     "controller_node":{    # 控制节点和网络节点
         "controller":{"IP":"192.168.1.242", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
