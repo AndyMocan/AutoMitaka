@@ -1,3 +1,7 @@
+所有节点：
+yum install net-tools -y
+
+
 
 1、拷贝所有的RPM包到controller01上，并在controller01上配置httpd服务
 
@@ -58,7 +62,7 @@ cd AutoMitak/conf/
 # coding:utf-8
 
 """配置文件"""
-# mancard是管理网络endpoint，buscard是业务网络：为虚拟机提供桥接的网卡，tuncard：隧道网卡，目前没有使用到，DVR的时候可以使用
+
 host_data = {
     "controller_node":{    # 控制节点和网络节点
         "controller":{"IP":"192.168.1.242", "username":"root", "password":"root1234", "port":22,"mancard":'enp4s0f0','buscard':'enp8s0','tuncard':'enp130s0'},
@@ -179,5 +183,128 @@ openstack image create "cirros" --file cirros-0.3.4-x86_64-disk.img --disk-forma
 
 
 
-#####################
-所有计算节点配置nova的ssh互信等
+
+# 计算节点之间做nova用户的ssh互信
+
+
+# 修改计算节点配置文件/etc/nova/nova.conf
+image_cache_manager_interval=0 
+live_migration_tunnelled=true
+
+
+
+
+
+
+#######################
+
+2018-01-23 15:04:00.040 31177 INFO nova.console.websocketproxy [req-5955bf78-e87f-4b8b-bd42-3edbd48999ca - - - - -] handler exception: The token '1a120367-a3be-41ee-8b1c-806d33323f08' is invalid or has expired
+
+
+memcached做的haporoxy不好，需要修改配置，删除haproxy的memcached的11211负载均衡，修改所有配置文件为
+memcached_servers = controller01:11211,controller02:11211,controller03:11211
+
+dashboard,glance,nova,neutron,cinder
+
+控制节点中/etc/nova/nova.conf 中default中增加
+memcached_servers = controller01:11211,controller02:11211,controller03:11211
+
+
+
+
+systemctl restart openstack-nova-compute neutron-openvswitch-agent.service
+
+
+
+
+
+# 开启安全组
+
+控制节点和计算节点修改如下配置：
+vim /etc/neutron/plugins/ml2/openvswitch_agent.ini
+[securitygroup]
+enable_security_group = True
+firewall_driver = neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
+
+
+
+
+
+
+
+
+# 负载均衡lbaasv2
+
+1、所有控制节点
+yum install openstack-neutron-lbaas
+cd /etc/neutron/
+#1.3编辑neutron.conf文件
+service_plugins =router, neutron_lbaas.services.loadbalancer.plugin.LoadBalancerPluginv2
+#1.4 编辑lbaas_agent.ini 文件
+[DEFAULT]
+interface_driver =neutron.agent.linux.interface.OVSInterfaceDriver
+ovs_use_veth = True
+device_driver = neutron_lbaas.drivers.haproxy.namespace_driver.HaproxyNSDriver
+[haproxy]
+user_group =haproxy
+#1.5 编辑neutron_lbaas.conf文件
+service_provider =LOADBALANCERV2:Haproxy:neutron_lbaas.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default
+#然后执行
+neutron-db-manage --subproject neutron-lbaas upgrade head
+systemctl restart neutron-server
+
+# 安装neutron-lbaas-dashboard
+这个是在openstack_dashboard安装的节点，一般是controller节点
+git clone https://git.openstack.org/openstack/neutron-lbaas-dashboard
+cd neutron-lbaas-dashboard
+python setup.py install
+cp neutron_lbaas_dashboard/enabled/1480project_loadbalancersv2_panel.py /usr/share/openstack-dashboard/openstack_dashboard/local/enabled/
+systemctl restart httpd.service memcached.service
+
+
+
+2、在网络节点操作如下（如果是分布式的话可以在计算节点上做如下操作）：
+yum install haproxy openstack-neutron-lbaas -y
+
+cd /etc/neutron/
+#1.4 编辑neutron.conf文件
+service_plugins = neutron_lbaas.services.loadbalancer.plugin.LoadBalancerPluginv2
+#1.5 编辑lbaas_agent.ini 文件
+[DEFAULT]
+interface_driver =neutron.agent.linux.interface.OVSInterfaceDriver
+ovs_use_veth = True
+device_driver = neutron_lbaas.drivers.haproxy.namespace_driver.HaproxyNSDriver
+[haproxy]
+user_group =haproxy
+#1.6 编辑neutron_lbaas.conf文件
+[service_providers]
+service_provider =LOADBALANCERV2:Haproxy:neutron_lbaas.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default
+#1.7启动服务
+systemctl start neutron-lbaasv2-agent.service
+
+
+
+######### CMD创建负载均衡服务
+neutron lbaas-loadbalancer-create --name test01 public_subnet --vip-address 192.168.240.83
+neutron lbaas-listener-create --name test01 --loadbalancer test01 --protocol TCP --protocol-port 22
+neutron lbaas-pool-create --name test01 --lb-algorithm ROUND_ROBIN --listener test01 --protocol TCP
+neutron lbaas-member-create --subnet public_subnet --address 192.168.240.80 --protocol-port 22  test01
+neutron lbaas-member-create --subnet public_subnet --address 192.168.240.86 --protocol-port 22  test01
+neutron lbaas-healthmonitor-create --delay 5 --max-retries 2 --timeout 10 --type TCP --pool test01
+
+################################ 创建另一个listener
+neutron lbaas-listener-create --name test02 --loadbalancer test01 --protocol HTTP --protocol-port 80
+neutron lbaas-pool-create --name test02 --lb-algorithm ROUND_ROBIN --listener test02 --protocol HTTP
+neutron lbaas-member-create --subnet public_subnet --address 192.168.240.81 --protocol-port 80  test02
+neutron lbaas-member-create --subnet public_subnet --address 192.168.240.82 --protocol-port 80  test02
+neutron lbaas-healthmonitor-create --delay 5 --max-retries 2 --timeout 10 --type HTTP --pool test02
+
+
+
+
+
+neutron lbaas-listener-create --name test05 --loadbalancer test01 --protocol HTTPS --protocol-port 443
+neutron lbaas-pool-create --name test05 --lb-algorithm LEAST_CONNECTIONS --listener test05 --protocol HTTPS
+neutron lbaas-member-create --subnet public_subnet --address 192.168.240.81 --protocol-port 443 test05
+neutron lbaas-member-create --subnet public_subnet --address 192.168.240.82 --protocol-port 443 test05
+neutron lbaas-healthmonitor-create --delay 5 --max-retries 2 --timeout 10 --type HTTPS --pool test05
