@@ -31,7 +31,7 @@ class paramiko_operate(object):
 
     def ssh_exec_command(self,shell_commands):
         ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy)
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(hostname=self.host,port=self.port,username=self.username,password=self.password)
         for shell_command in shell_commands:
             stdin,stdout,stderr = ssh.exec_command(shell_command)
