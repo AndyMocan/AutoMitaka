@@ -44,6 +44,7 @@ fi
 systemctl daemon-reload
 systemctl enable xinetd
 systemctl start xinetd
+systemctl restart xinetd
 
 
 
